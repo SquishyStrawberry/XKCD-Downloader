@@ -3,6 +3,7 @@ import shutil
 import os
 from bs4 import BeautifulSoup
 import html.parser
+import colorama
 import re
 
 
@@ -25,7 +26,6 @@ class comic:
 		
 	def get_image_data(self):
 		self.url = BASE_URL + str(self.num) + "/"
-		print(self.url)
 		
 		respText = requests.get(self.url).text
 		soup = BeautifulSoup(respText, "html.parser")
@@ -48,7 +48,7 @@ class comic:
 		self.title = fixedTitle
 		
 
-comicInput = input("Enter the number of XKCD comics (100) or range (1050-1090) of XKCD comics to download: ")
+comicInput = input("Enter the number or range of comics to download: ")
 startNum = 1
 endNum = 0
 
@@ -69,13 +69,26 @@ if not os.path.exists("comics"):
 	os.makedirs("comics")
 
 
+successfulDownloads = 0
+failedDownloads = 0
 #loop through and download the comics
 for i in range(startNum, endNum+1):
 	try:
 		currentComic = comic(i)
 		currentComic.get_image_data()
 		currentComic.download_and_save_image()
+		successfulDownloads += 1
 	except Exception as e:
 		print("There was an error downloading comic", i, e)
+		failedDownloads += 1
 		
+		
+print("\nDOWNLOADS COMPLETED")
+print("-------------------")
+
+print(colorama.Fore.GREEN + "Successfully downloaded", successfulDownloads, "comics")
+print(colorama.Fore.RED + str(failedDownloads), "failed")
+print(colorama.Fore.RESET + "\nFile saved in", os.path.join(os.getcwd(), "comics"))
+		
+
 	
