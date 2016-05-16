@@ -19,7 +19,7 @@ class comic:
 
 	def download_and_save_image(self):
 		resp = requests.get(self.imageUrl, stream=True)
-		fileName = "comics/" + str(self.num) + " - XKCD - " + self.title + ".png"
+		fileName = "comics/" + str(self.num).zfill(4)  + " - XKCD - " + self.title + ".png"
 		
 		with open(fileName, "wb") as comicFile:
 			shutil.copyfileobj(resp.raw, comicFile)
