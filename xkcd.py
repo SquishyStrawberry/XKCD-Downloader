@@ -1,110 +1,108 @@
-#!/usr/bin/env python3
-import html.parser
+#!/usr/bin/env python
+from __future__ import print_function
+import eventlet; eventlet.monkey_patch()
+
 import os
 import re
-import shutil
-import traceback
+import threading
+import warnings
 
+import bs4
 import colorama
 import requests
-from bs4 import BeautifulSoup
 
-# TODO Paralellize this code
+BASE_URL = "http://xkcd.com/{}/"
+FILENAME_TEMPLATE = "comics/{:04} - XKCD - {}.png"
 
+# We need to create a semaphore for opening files, since on most OSes you can
+# only open a maximum of 256 files at the same time.
+fileobj_semaphore = threading.Semaphore(255)
 
-class _LazyAttribute(object):
-    def __init__(self, name, method_name):
-        self.name = name
-        self.method_name = method_name
-
-    def __get__(self, instance, owner):
-        if not hasattr(instance, "_lazy_attributes"):
-            instance._lazy_attributes = {}
-        if self.method_name not in instance._lazy_attributes:
-            instance._lazy_attributes[self.method_name] = \
-                getattr(owner, self.method_name)(instance)
-        return instance._lazy_attributes[self.method_name][self.name]
+# Ignore BeautifulSoup warning about not specifying a parser.
+warnings.simplefilter("ignore", category=UserWarning)
 
 
-class Comic:
-    BASE_URL = "http://xkcd.com/{}/"
-    FILENAME_TEMPLATE = "comics/{:04} - XKCD - {}.png"
+def _save_comic(num):
+    # Get the so-called "soup of elements".
+    response_text = requests.get(BASE_URL.format(num)).text
+    soup = bs4.BeautifulSoup(response_text)
 
-    image_url = _LazyAttribute("image_url", "_get_image_data")
-    title = _LazyAttribute("title", "_get_image_data")
+    # Find the image url
+    comic_div = soup.find("div", {"id": "comic"})
+    image = comic_div.find("img")
+    image_url = "http://" + image["src"].replace("//", "")
 
-    def __init__(self, num):
-        self.num = num
-        self.url = self.BASE_URL.format(self.num)
+    # Find the official title of the comic.
+    title = soup.find("title").text
+    title = title.split("xkcd: ")[1]
 
-    def _get_image_data(self):
-        response_text = requests.get(self.url).text
-        soup = BeautifulSoup(response_text, "html.parser")
+    # Remove any invalid characters that aren't allowed in filenames.
+    title = re.sub(r"[^A-Za-z 0-9\-]", "", title)
 
-        # Find the image url
-        comic_div = soup.find("div", {"id": "comic"})
-        image = comic_div.find("img")
-        image_url = "http://" + image["src"].replace("//", "")
+    resp = requests.get(image_url, stream=True)
+    filename = FILENAME_TEMPLATE.format(num, title)
 
-        # Find the official title of the comic.
-        title = soup.find("title").text
-        title = title.split("xkcd: ")[1]
+    with fileobj_semaphore, open(filename, "wb") as comic_file:
+        print(colorama.Fore.MAGENTA, end="")
+        print("Started writing comic", num, "to file")
+        print(colorama.Fore.RESET, end="")
+        # Write file kibibyte by kibibyte.
+        for chunk in resp.iter_content(1024):
+            comic_file.write(chunk)
+    resp.close()  # You need to close stream requests
 
-        # Remove any invalid characters that aren't allowed in filenames.
-        title = re.sub(r"[^A-Za-z 0-9\-]", "", title)
 
-        return {
-            "image_url": image_url,
-            "title": title,
-        }
+def save_comic(num, print_status=True):
+    if print_status:
+        print(colorama.Fore.YELLOW, end="")
+        print("Started downloading comic", num)
+        print(colorama.Fore.RESET, end="")
+    try:
+        _save_comic(num)
+    except Exception as e:
+        return num, e
+    else:
+        return num, None
 
-    def download_and_save_image(self):
-        resp = requests.get(self.image_url, stream=True)
-        filename = self.FILENAME_TEMPLATE.format(self.num, self.title)
-
-        with open(filename, "wb") as comic_file:
-            shutil.copyfileobj(resp.raw, comic_file)
-        resp.close()  # You need to close stream requests
 
 def main():
     comic_input = input("Enter the number or range of comics to download: ")
-    start_num = 1
-    end_num = 0
+    successful = failed = 0
+
+    if not os.path.isdir("comics"):
+        os.mkdir("comics")
 
     if "-" in comic_input:
         # A range was entered
         start_num, end_num = map(int, comic_input.split("-"))
     else:
         # A single number was entered
-        end_num = int(comic_input)
+        start_num, end_num = 1, int(comic_input)
 
-    # Create folder comics inside cwd if it doesn't exist
-    if not os.path.exists("comics"):
-        os.makedirs("comics")
-
-    successful = failed = 0
-
-    # Loop through and download the comics
-    for i in range(start_num, end_num+1):
-        try:
-            Comic(i).download_and_save_image()
-        except:
-            print("There was an error downloading comic", i)
-            traceback.print_exc()
-            failed += 1
-        else:
+    # Download all the comics asynchronously, which makes it way, WAY, faster.
+    p = eventlet.GreenPool(end_num + 1 - start_num)
+    for (num, exception) in p.imap(save_comic, range(start_num, end_num + 1)):
+        if exception is None:
+            print(colorama.Fore.GREEN, end="")
+            print("Finished downloading comic", num)
+            print(colorama.Fore.RESET, end="")
             successful += 1
+        else:
+            print(colorama.Fore.RED, end="")
+            print("There was an error downloading comic", num, end=": ")
+            print(exception)
+            print(colorama.Fore.RESET, end="")
+            failed += 1
 
     print("\nDOWNLOADS COMPLETED")
-    print("-------------------")
+    print("-" * len("DOWNLOADS COMPLETED"))
 
-    print(colorama.Fore.GREEN + "Successfully downloaded",
-                                 successful,
-                                 "comics")
-    print(colorama.Fore.RED + str(failed),
-                              "failed")
-    print(colorama.Fore.RESET + "\nFile saved in",
-                                os.path.join(os.getcwd(), "comics"))
+    print(colorama.Fore.GREEN, end="")
+    print("Successfully downloaded", successful, "comics")
+    print(colorama.Fore.RED, end="")
+    print(failed, "failed")
+    print(colorama.Fore.RESET, end="")
+    print("\nFile saved in", os.path.join(os.getcwd(), "comics"))
 
 if __name__ == "__main__":
     main()
