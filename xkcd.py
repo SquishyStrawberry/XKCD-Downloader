@@ -16,7 +16,7 @@ FILENAME_TEMPLATE = "comics/{:04} - XKCD - {}.png"
 
 # We need to create a semaphore for opening files, since on most OSes you can
 # only open a maximum of 256 files at the same time.
-fileobj_semaphore = threading.Semaphore(255)
+fileobj_semaphore = threading.BoundedSemaphore(255)
 
 # Ignore BeautifulSoup warning about not specifying a parser.
 warnings.simplefilter("ignore", category=UserWarning)
@@ -63,6 +63,32 @@ def save_comic(num):
     else:
         return num, None
 
+def save_comics(start_num, end_num):
+    # Download all the comics asynchronously, which makes it way, WAY, faster.
+    to_go = end_num + 1 - start_num
+    comic_numbers = range(start_num, end_num + 1)
+    p = eventlet.GreenPool(to_go)
+    successful = failed = 0
+    try:
+        for (num, exception) in p.imap(save_comic, comic_numbers):
+            if exception is None:
+                print(colorama.Fore.GREEN, end="")
+                print("Finished downloading comic", num)
+                print(colorama.Fore.RESET, end="")
+                successful += 1
+            else:
+                print(colorama.Fore.RED, end="")
+                print("There was an error downloading comic", num, end=": ")
+                print(exception)
+                print(colorama.Fore.RESET, end="")
+                failed += 1
+            to_go -= 1
+    except KeyboardInterrupt:
+        # We specifically catch KeyboardInterrupt because the user may want to
+        # interrupt the process while it isn't finished, but we don't want to
+        # show an ugly error message without printing download status.
+        pass
+    return successful, failed, to_go
 
 def main():
     comic_input = input("Enter the number or range of comics to download: ")
@@ -78,30 +104,22 @@ def main():
         # A single number was entered
         start_num, end_num = 1, int(comic_input)
 
-    # Download all the comics asynchronously, which makes it way, WAY, faster.
-    p = eventlet.GreenPool(end_num + 1 - start_num)
-    for (num, exception) in p.imap(save_comic, range(start_num, end_num + 1)):
-        if exception is None:
-            print(colorama.Fore.GREEN, end="")
-            print("Finished downloading comic", num)
-            print(colorama.Fore.RESET, end="")
-            successful += 1
-        else:
-            print(colorama.Fore.RED, end="")
-            print("There was an error downloading comic", num, end=": ")
-            print(exception)
-            print(colorama.Fore.RESET, end="")
-            failed += 1
+    successful, failed, to_go = save_comics(start_num, end_num)
 
-    print("\nDOWNLOADS COMPLETED")
-    print("-" * len("DOWNLOADS COMPLETED"))
+    msg = "DOWNLOADS " + ("COMPLETED" if to_go == 0 else "INTERRUPTED")
+    # We print out multiple newlines when we haven't downloaded all the comics
+    # to space ourselves from the "^C" that gets printed.
+    print(("\n" if to_go == 0 else "\n\n") + msg)
+    print("-" * len(msg))
 
     print(colorama.Fore.GREEN, end="")
     print("Successfully downloaded", successful, "comics")
     print(colorama.Fore.RED, end="")
     print(failed, "failed")
+    print(colorama.Fore.YELLOW, end="")
+    print(to_go, "not downloaded")
     print(colorama.Fore.RESET, end="")
-    print("\nFile saved in", os.path.join(os.getcwd(), "comics"))
+    print("\nFiles saved in", os.path.join(os.getcwd(), "comics"))
 
 if __name__ == "__main__":
     main()
