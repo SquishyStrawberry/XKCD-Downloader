@@ -4,6 +4,7 @@ import eventlet; eventlet.monkey_patch()
 
 import os
 import re
+import sys
 import threading
 import warnings
 
@@ -13,6 +14,16 @@ import requests
 
 BASE_URL = "http://xkcd.com/{}/"
 FILENAME_TEMPLATE = "comics/{:04} - XKCD - {}.png"
+
+# XXX These values appear to differ between OSes, but it seems like the limit
+# on Windows is always 256 or 512 and on *nix systems it's around 32767; I
+# still need to figure out a way to get this programatically, but AFAIK there
+# are no major OSes used nowadays that don't fall into Windows or *nix.
+if sys.platform.startswith("win"):
+    MAXIMUM_POOL = 512
+else:
+    MAXIMUM_POOL = 32767
+
 
 # We need to create a semaphore for opening files, since on most OSes you can
 # only open a maximum of 256 files at the same time.
@@ -79,7 +90,7 @@ def save_comics(start_num, end_num):
     # Download all the comics asynchronously, which makes it way, WAY, faster.
     to_go = end_num + 1 - start_num
     comic_numbers = range(start_num, end_num + 1)
-    p = eventlet.GreenPool(to_go)
+    p = eventlet.GreenPool(min(to_go, MAXIMUM_POOL))
     successful = failed = 0
     try:
         for (num, exception) in p.imap(save_comic, comic_numbers):
