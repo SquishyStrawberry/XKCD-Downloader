@@ -52,11 +52,10 @@ def _save_comic(num):
     resp.close()  # You need to close stream requests
 
 
-def save_comic(num, print_status=True):
-    if print_status:
-        print(colorama.Fore.YELLOW, end="")
-        print("Started downloading comic", num)
-        print(colorama.Fore.RESET, end="")
+def save_comic(num):
+    print(colorama.Fore.YELLOW, end="")
+    print("Started downloading comic", num)
+    print(colorama.Fore.RESET, end="")
     try:
         _save_comic(num)
     except Exception as e:
