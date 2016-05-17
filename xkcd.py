@@ -1,94 +1,110 @@
-import requests
-import shutil
-import os
-from bs4 import BeautifulSoup
+#!/usr/bin/env python3
 import html.parser
-import colorama
+import os
 import re
+import shutil
+import traceback
+
+import colorama
+import requests
+from bs4 import BeautifulSoup
+
+# TODO Paralellize this code
 
 
-BASE_URL = "http://xkcd.com/"
+class _LazyAttribute(object):
+    def __init__(self, name, method_name):
+        self.name = name
+        self.method_name = method_name
+
+    def __get__(self, instance, owner):
+        if not hasattr(instance, "_lazy_attributes"):
+            instance._lazy_attributes = {}
+        if self.method_name not in instance._lazy_attributes:
+            instance._lazy_attributes[self.method_name] = \
+                getattr(owner, self.method_name)(instance)
+        return instance._lazy_attributes[self.method_name][self.name]
 
 
-class comic:
-	def __init__(self, num):
-		self.num = num
-		self.url = None
-		self.imageUrl = None
-		self.title = None
+class Comic:
+    BASE_URL = "http://xkcd.com/{}/"
+    FILENAME_TEMPLATE = "comics/{:04} - XKCD - {}.png"
 
-	def download_and_save_image(self):
-		resp = requests.get(self.imageUrl, stream=True)
-		fileName = "comics/" + str(self.num).zfill(4)  + " - XKCD - " + self.title + ".png"
-		
-		with open(fileName, "wb") as comicFile:
-			shutil.copyfileobj(resp.raw, comicFile)
-		
-	def get_image_data(self):
-		self.url = BASE_URL + str(self.num) + "/"
-		
-		respText = requests.get(self.url).text
-		soup = BeautifulSoup(respText, "html.parser")
-		
-		
-		#find the link to download the image from
-		comicDiv = soup.find("div", {"id": "comic"})
-		image = comicDiv.find("img")
-		imageSrc = image['src']
-		fixedLink = "http://" + imageSrc.replace("//", "")
-		self.imageUrl = fixedLink
-		
-		#find the official title of the comic
-		title = soup.find("title")
-		fixedTitle = title.text.split("xkcd: ")[1]
-		
-		#remove any invalid characters that aren't allowed in windows filenames
-		fixedTitle = re.sub(r"[^A-Za-z 0-9\-]", "", fixedTitle)
-		
-		self.title = fixedTitle
-		
+    image_url = _LazyAttribute("image_url", "_get_image_data")
+    title = _LazyAttribute("title", "_get_image_data")
 
-comicInput = input("Enter the number or range of comics to download: ")
-startNum = 1
-endNum = 0
+    def __init__(self, num):
+        self.num = num
+        self.url = self.BASE_URL.format(self.num)
 
+    def _get_image_data(self):
+        response_text = requests.get(self.url).text
+        soup = BeautifulSoup(response_text, "html.parser")
 
-if "-" in comicInput:
-	#a range was entered
-	
-	startNum = int(comicInput.split("-")[0])
-	endNum = int(comicInput.split("-")[1])
-else:
+        # Find the image url
+        comic_div = soup.find("div", {"id": "comic"})
+        image = comic_div.find("img")
+        image_url = "http://" + image["src"].replace("//", "")
 
-	#a single number was entered
-	endNum = int(comicInput)
-	
+        # Find the official title of the comic.
+        title = soup.find("title").text
+        title = title.split("xkcd: ")[1]
 
-#create folder comics inside cwd if it doesn't exist
-if not os.path.exists("comics"):
-	os.makedirs("comics")
+        # Remove any invalid characters that aren't allowed in filenames.
+        title = re.sub(r"[^A-Za-z 0-9\-]", "", title)
 
+        return {
+            "image_url": image_url,
+            "title": title,
+        }
 
-successfulDownloads = 0
-failedDownloads = 0
-#loop through and download the comics
-for i in range(startNum, endNum+1):
-	try:
-		currentComic = comic(i)
-		currentComic.get_image_data()
-		currentComic.download_and_save_image()
-		successfulDownloads += 1
-	except Exception as e:
-		print("There was an error downloading comic", i, e)
-		failedDownloads += 1
-		
-		
-print("\nDOWNLOADS COMPLETED")
-print("-------------------")
+    def download_and_save_image(self):
+        resp = requests.get(self.image_url, stream=True)
+        filename = self.FILENAME_TEMPLATE.format(self.num, self.title)
 
-print(colorama.Fore.GREEN + "Successfully downloaded", successfulDownloads, "comics")
-print(colorama.Fore.RED + str(failedDownloads), "failed")
-print(colorama.Fore.RESET + "\nFile saved in", os.path.join(os.getcwd(), "comics"))
-		
+        with open(filename, "wb") as comic_file:
+            shutil.copyfileobj(resp.raw, comic_file)
+        resp.close()  # You need to close stream requests
 
-	
+def main():
+    comic_input = input("Enter the number or range of comics to download: ")
+    start_num = 1
+    end_num = 0
+
+    if "-" in comic_input:
+        # A range was entered
+        start_num, end_num = map(int, comic_input.split("-"))
+    else:
+        # A single number was entered
+        end_num = int(comic_input)
+
+    # Create folder comics inside cwd if it doesn't exist
+    if not os.path.exists("comics"):
+        os.makedirs("comics")
+
+    successful = failed = 0
+
+    # Loop through and download the comics
+    for i in range(start_num, end_num+1):
+        try:
+            Comic(i).download_and_save_image()
+        except:
+            print("There was an error downloading comic", i)
+            traceback.print_exc()
+            failed += 1
+        else:
+            successful += 1
+
+    print("\nDOWNLOADS COMPLETED")
+    print("-------------------")
+
+    print(colorama.Fore.GREEN + "Successfully downloaded",
+                                 successful,
+                                 "comics")
+    print(colorama.Fore.RED + str(failed),
+                              "failed")
+    print(colorama.Fore.RESET + "\nFile saved in",
+                                os.path.join(os.getcwd(), "comics"))
+
+if __name__ == "__main__":
+    main()
