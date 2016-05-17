@@ -29,6 +29,18 @@ def _save_comic(num):
 
     # Find the image url
     comic_div = soup.find("div", {"id": "comic"})
+
+    # Fixes an issue mentioned on GitHub, by only downloading comics that just
+    # have the comic image in the comic div, but I am unsure of any "real"
+    # comics that have more than the image.
+    # We also convert it to a tuple because it's an iterator, and so does not
+    # follow the sequence protocol and we use getattr with a default because
+    # sometimes there is no comic div.
+    # Another thing, we check if it doesn't equal three because regular comics
+    # have the children ('\n', img, '\n'), not just the image.
+    if len(tuple(getattr(comic_div, "children", ()))) != 3:
+        raise RuntimeError("Comic is not a regular comic!")
+
     image = comic_div.find("img")
     image_url = "http://" + image["src"].replace("//", "")
 
@@ -117,7 +129,7 @@ def main():
     print(colorama.Fore.RED, end="")
     print(failed, "failed")
     print(colorama.Fore.YELLOW, end="")
-    print(to_go, "not downloaded")
+    print(to_go, "skipped")
     print(colorama.Fore.RESET, end="")
     print("\nFiles saved in", os.path.join(os.getcwd(), "comics"))
 
