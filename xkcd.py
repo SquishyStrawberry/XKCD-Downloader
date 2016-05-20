@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 from __future__ import print_function
-import eventlet; eventlet.monkey_patch()
+import eventlet
+eventlet.monkey_patch()
 
 import os
 import re
+import shutil
 
 import colorama
 import lxml.etree
@@ -48,8 +50,7 @@ def _save_comic(num):
 
     with open(filename, "wb") as comic_file:
         # Write file kibibyte by kibibyte.
-        for chunk in resp.iter_content(1024):
-            comic_file.write(chunk)
+        shutil.copyfileobj(resp.raw, comic_file)
     resp.close()  # You need to close stream requests
 
 
