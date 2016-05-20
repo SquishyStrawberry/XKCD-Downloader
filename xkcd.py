@@ -4,8 +4,6 @@ import eventlet; eventlet.monkey_patch()
 
 import os
 import re
-import sys
-import threading
 
 import colorama
 import lxml.etree
@@ -14,19 +12,12 @@ import requests
 BASE_URL = "http://xkcd.com/{}/"
 FILENAME_TEMPLATE = "comics/{:04} - XKCD - {}.png"
 
+# This value limits the pool of coroutines to 255, since that's the maximum
+# amount of files you can have open at the same time and thus write to.
+MAXIMUM_FILE_OBJECTS = 255
+
 # Python 2 uses `raw_input` instead of `input`
 input_ = getattr(__builtins__, "raw_input", input)
-
-# This value limits the amount of coroutines created, which are limited by the
-# amount of sockets you can have in a select() call.
-if sys.platform.startswith("win"):
-    MAXIMUM_COROUTINES = 512
-else:
-    MAXIMUM_COROUTINES = 32767
-
-# This semaphore limits the amounts of file objects that are open at one time,
-# which is actually a variable value with a default of 255.
-file_semaphore = threading.BoundedSemaphore(255)
 
 
 def _save_comic(num):
@@ -55,10 +46,7 @@ def _save_comic(num):
     resp = requests.get(image_url, stream=True)
     filename = FILENAME_TEMPLATE.format(num, title)
 
-    with file_semaphore, open(filename, "wb") as comic_file:
-        print(colorama.Fore.MAGENTA, end="")
-        print("Started writing comic", num, "to file")
-        print(colorama.Fore.RESET, end="")
+    with open(filename, "wb") as comic_file:
         # Write file kibibyte by kibibyte.
         for chunk in resp.iter_content(1024):
             comic_file.write(chunk)
@@ -80,7 +68,7 @@ def save_comics(start_num, end_num):
     # Download all the comics asynchronously, which makes it way, WAY, faster.
     to_go = end_num + 1 - start_num
     comic_numbers = range(start_num, end_num + 1)
-    p = eventlet.GreenPool(min(to_go, MAXIMUM_COROUTINES))
+    p = eventlet.GreenPool(min(to_go, MAXIMUM_FILE_OBJECTS))
     successful = failed = 0
     try:
         for (num, exception) in p.imap(save_comic, comic_numbers):
