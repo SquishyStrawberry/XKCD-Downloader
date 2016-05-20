@@ -6,58 +6,48 @@ import os
 import re
 import sys
 import threading
-import warnings
 
-import bs4
 import colorama
+import lxml.etree
 import requests
 
 BASE_URL = "http://xkcd.com/{}/"
 FILENAME_TEMPLATE = "comics/{:04} - XKCD - {}.png"
 
-# XXX These values appear to differ between OSes, but it seems like the limit
-# on Windows is always 256 or 512 and on *nix systems it's around 32767; I
-# still need to figure out a way to get this programatically, but AFAIK there
-# are no major OSes used nowadays that don't fall into Windows or *nix.
+# Python 2 uses `raw_input` instead of `input`
+input_ = getattr(__builtins__, "raw_input", input)
+
+# This value limits the amount of coroutines created, which are limited by the
+# amount of sockets you can have in a select() call.
 if sys.platform.startswith("win"):
-    MAXIMUM_POOL = 512
+    MAXIMUM_COROUTINES = 512
 else:
-    MAXIMUM_POOL = 32767
+    MAXIMUM_COROUTINES = 32767
 
-
-# We need to create a semaphore for opening files, since on most OSes you can
-# only open a maximum of 256 files at the same time.
-fileobj_semaphore = threading.BoundedSemaphore(255)
-
-# Ignore BeautifulSoup warning about not specifying a parser.
-warnings.simplefilter("ignore", category=UserWarning)
+# This semaphore limits the amounts of file objects that are open at one time,
+# which is actually a variable value with a default of 255.
+file_semaphore = threading.BoundedSemaphore(255)
 
 
 def _save_comic(num):
     # Get the so-called "soup of elements".
     response_text = requests.get(BASE_URL.format(num)).text
-    soup = bs4.BeautifulSoup(response_text)
+    root = lxml.etree.HTML(response_text)
 
     # Find the image url
-    comic_div = soup.find("div", {"id": "comic"})
+    comic_div = root.xpath('//div[@id="comic"]')[0]
 
     # Fixes an issue mentioned on GitHub, by only downloading comics that just
     # have the comic image in the comic div, but I am unsure of any "real"
     # comics that have more than the image.
-    # We also convert it to a tuple because it's an iterator, and so does not
-    # follow the sequence protocol and we use getattr with a default because
-    # sometimes there is no comic div.
-    # Another thing, we check if it doesn't equal three because regular comics
-    # have the children ('\n', img, '\n'), not just the image.
-    if len(tuple(getattr(comic_div, "children", ()))) != 3:
+    if len(comic_div) != 1:
         raise RuntimeError("Comic is not a regular comic!")
 
-    image = comic_div.find("img")
-    image_url = "http://" + image["src"].replace("//", "")
+    image_src = comic_div.find("img").get("src")
+    image_url = "http://" + image_src.replace("//", "")
 
     # Find the official title of the comic.
-    title = soup.find("title").text
-    title = title.split("xkcd: ")[1]
+    title = root.xpath("/html/head/title/text()")[0].split("xkcd: ")[1]
 
     # Remove any invalid characters that aren't allowed in filenames.
     title = re.sub(r"[^A-Za-z 0-9\-]", "", title)
@@ -65,7 +55,7 @@ def _save_comic(num):
     resp = requests.get(image_url, stream=True)
     filename = FILENAME_TEMPLATE.format(num, title)
 
-    with fileobj_semaphore, open(filename, "wb") as comic_file:
+    with file_semaphore, open(filename, "wb") as comic_file:
         print(colorama.Fore.MAGENTA, end="")
         print("Started writing comic", num, "to file")
         print(colorama.Fore.RESET, end="")
@@ -90,7 +80,7 @@ def save_comics(start_num, end_num):
     # Download all the comics asynchronously, which makes it way, WAY, faster.
     to_go = end_num + 1 - start_num
     comic_numbers = range(start_num, end_num + 1)
-    p = eventlet.GreenPool(min(to_go, MAXIMUM_POOL))
+    p = eventlet.GreenPool(min(to_go, MAXIMUM_COROUTINES))
     successful = failed = 0
     try:
         for (num, exception) in p.imap(save_comic, comic_numbers):
@@ -114,7 +104,7 @@ def save_comics(start_num, end_num):
     return successful, failed, to_go
 
 def main():
-    comic_input = input("Enter the number or range of comics to download: ")
+    comic_input = input_("Enter the number or range of comics to download: ")
     successful = failed = 0
 
     if not os.path.isdir("comics"):
@@ -129,10 +119,16 @@ def main():
 
     successful, failed, to_go = save_comics(start_num, end_num)
 
-    msg = "DOWNLOADS " + ("COMPLETED" if to_go == 0 else "INTERRUPTED")
     # We print out multiple newlines when we haven't downloaded all the comics
     # to space ourselves from the "^C" that gets printed.
-    print(("\n" if to_go == 0 else "\n\n") + msg)
+    msg = "DOWNLOADS "
+    if to_go == 0:
+        msg += "COMPLETED"
+    else:
+        print()
+        msg += "INTERRUPTED"
+    print()
+    print(msg)
     print("-" * len(msg))
 
     print(colorama.Fore.GREEN, end="")
