@@ -86,16 +86,17 @@ def save_comic(num):
     else:
         return num, None
 
-def save_comics(start_num, end_num):
+def save_comics(start_num, end_num, line_offset=0):
     to_go = end_num + 1 - start_num
     comic_numbers = range(start_num, end_num + 1)
     p = eventlet.GreenPool(min(to_go, MAXIMUM_FILE_OBJECTS))
     successful = failed = 0
-    put_cursor_at(0, 2)
+    put_cursor_at(0, 2 + line_offset)
     cprint(colorama.Fore.BLUE, "[{}]".format(" " * to_go), end="")
     try:
         for (num, exception) in p.imap(save_comic, comic_numbers):
-            put_cursor_at((end_num + 1 - start_num) - to_go + 1, 2)
+            put_cursor_at((end_num + 1 - start_num) - to_go + 1,
+                          2 + line_offset)
             if exception is None:
                 cprint(colorama.Fore.GREEN, "#", end="")
                 successful += 1
@@ -108,23 +109,32 @@ def save_comics(start_num, end_num):
         # interrupt the process while it isn't finished, but we don't want to
         # show an ugly error message without printing download status.
         pass
-    put_cursor_at(y=2)
+    put_cursor_at(y=2 + line_offset)
     return successful, failed, to_go
 
 def main():
     clear_screen()
-    comic_input = input_("Enter the number or range of comics to download: ")
     successful = failed = 0
+    # We need don't need to print the prompt if we're getting input piped in,
+    # so we just account for it not being there if it's not via offsetting
+    # every `put_cursor_at` by `line_offset`.
+    line_offset = 0
+
+    if sys.stdin.isatty():
+        inp = input_("Enter the number or range of comics to download: ")
+    else:
+        inp = sys.stdin.read()
+        line_offset = -2
 
     if not os.path.isdir("comics"):
         os.mkdir("comics")
 
-    if "-" in comic_input:
-        start_num, end_num = map(int, comic_input.split("-"))
+    if "-" in inp:
+        start_num, end_num = map(int, inp.split("-"))
     else:
-        start_num, end_num = 1, int(comic_input)
+        start_num, end_num = 1, int(inp)
 
-    successful, failed, to_go = save_comics(start_num, end_num)
+    successful, failed, to_go = save_comics(start_num, end_num, line_offset)
 
     # We print out multiple newlines when we haven't downloaded all the comics
     # to space ourselves from the "^C" that gets printed.
