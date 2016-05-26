@@ -146,15 +146,13 @@ def main():
 
     successful, failed, to_go = save_comics(start_num, end_num, line_offset)
 
-    # We print out multiple newlines when we haven't downloaded all the comics
-    # to space ourselves from the "^C" that gets printed.
     msg = "DOWNLOADS "
     if to_go == 0:
         msg += "COMPLETED"
     else:
-        print()
         msg += "INTERRUPTED"
 
+    print()
     print()
     print(msg)
     print("-" * len(msg))
