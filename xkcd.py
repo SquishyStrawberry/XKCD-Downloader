@@ -13,6 +13,7 @@ import requests
 
 BASE_URL = "https://xkcd.com/{}/"
 FILENAME_TEMPLATE = "comics/{:04} - XKCD - {}.png"
+PROGESS_BAR_WIDTH = 100
 
 # This value limits the pool of coroutines to 255, since that's the maximum
 # amount of files you can have open at the same time and thus write to.
@@ -92,19 +93,26 @@ def save_comics(start_num, end_num, line_offset=0):
     successful = failed = 0
     comic_numbers = range(start_num, end_num + 1)
     p = eventlet.GreenPool(min(to_go, MAXIMUM_FILE_OBJECTS))
+    chars_per_comic = PROGESS_BAR_WIDTH / total_comics
 
     put_cursor_at(0, 2 + line_offset)
-    cprint(colorama.Fore.BLUE, "[", " " * (100 - 2), "]", end="")
+    cprint(colorama.Fore.BLUE, "[", " " * (PROGESS_BAR_WIDTH - 2), "]", end="")
     try:
         for (num, exception) in p.imap(save_comic, comic_numbers):
             downloaded = total_comics - to_go + 1
+            char_amount = int(chars_per_comic * downloaded)
 
             put_cursor_at(0, 2 + line_offset)
             cprint(colorama.Fore.BLUE, "[", end="")
-            cprint(colorama.Fore.GREEN,
-                   "%" * int(100 / total_comics * downloaded), end="")
-            print_(" " * (100 - int(100 / total_comics * downloaded)), end="")
-            cprint(colorama.Fore.BLUE, "]")
+            cprint(colorama.Fore.GREEN, "%" * char_amount, end="")
+            print_((PROGESS_BAR_WIDTH - char_amount) * " ", end="")
+            cprint(colorama.Fore.BLUE, "]", end="")
+
+            if exception is None:
+                successful += 1
+            else:
+                failed += 1
+
             to_go -= 1
     except KeyboardInterrupt:
         # We specifically catch KeyboardInterrupt because the user may want to
