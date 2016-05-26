@@ -5,6 +5,7 @@ eventlet.monkey_patch()
 
 import os
 import re
+import sys
 
 import bs4
 import colorama
@@ -25,10 +26,31 @@ input_ = getattr(__builtins__, "raw_input", input)
 colorama.init()
 
 
-def cprint(color, *args, **kwargs):
-    print(color, end="")
+def print_(*args, **kwargs):
     print(*args, **kwargs)
-    print(colorama.Fore.RESET + colorama.Back.RESET, end="")
+    sys.stdout.flush()
+
+
+def cprint(color, *args, **kwargs):
+    print_(color, end="")
+    print_(*args, **kwargs)
+    print_(colorama.Fore.RESET + colorama.Back.RESET, end="")
+
+
+def put_cursor_at(x=None, y=None):
+    escape_sequence = "\033["
+    if y is not None:
+        escape_sequence += str(y + 1)
+    escape_sequence += ";"
+    if x is not None:
+        escape_sequence += str(x + 1)
+    escape_sequence += "H"
+    print_(escape_sequence, end="")
+
+
+def clear_screen():
+    print_("\033[2J")
+    put_cursor_at(0, 0)
 
 
 def _save_comic(num):
@@ -57,7 +79,6 @@ def _save_comic(num):
 
 
 def save_comic(num):
-    cprint(colorama.Fore.YELLOW, "Started downloading comic", num)
     try:
         _save_comic(num)
     except Exception as e:
@@ -70,15 +91,16 @@ def save_comics(start_num, end_num):
     comic_numbers = range(start_num, end_num + 1)
     p = eventlet.GreenPool(min(to_go, MAXIMUM_FILE_OBJECTS))
     successful = failed = 0
+    put_cursor_at(0, 2)
+    cprint(colorama.Fore.BLUE, "[{}]".format(" " * to_go), end="")
     try:
         for (num, exception) in p.imap(save_comic, comic_numbers):
+            put_cursor_at((end_num + 1 - start_num) - to_go + 1, 2)
             if exception is None:
-                cprint(colorama.Fore.GREEN, "Finished downloading comic", num)
+                cprint(colorama.Fore.GREEN, "#", end="")
                 successful += 1
             else:
-                cprint(colorama.Fore.RED,
-                       "There was an error "
-                       "downloading comic {}: {}".format(num, exception))
+                cprint(colorama.Fore.RED, "#", end="")
                 failed += 1
             to_go -= 1
     except KeyboardInterrupt:
@@ -86,9 +108,11 @@ def save_comics(start_num, end_num):
         # interrupt the process while it isn't finished, but we don't want to
         # show an ugly error message without printing download status.
         pass
+    put_cursor_at(y=2)
     return successful, failed, to_go
 
 def main():
+    clear_screen()
     comic_input = input_("Enter the number or range of comics to download: ")
     successful = failed = 0
 
@@ -110,10 +134,10 @@ def main():
     else:
         print()
         msg += "INTERRUPTED"
+
     print()
     print(msg)
     print("-" * len(msg))
-
     cprint(colorama.Fore.GREEN,
            "Successfully downloaded", successful, "comics")
     cprint(colorama.Fore.RED, failed, "failed")
