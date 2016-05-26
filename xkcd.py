@@ -86,23 +86,25 @@ def save_comic(num):
     else:
         return num, None
 
+
 def save_comics(start_num, end_num, line_offset=0):
-    to_go = end_num + 1 - start_num
+    total_comics = to_go = end_num + 1 - start_num
+    successful = failed = 0
     comic_numbers = range(start_num, end_num + 1)
     p = eventlet.GreenPool(min(to_go, MAXIMUM_FILE_OBJECTS))
-    successful = failed = 0
+
     put_cursor_at(0, 2 + line_offset)
-    cprint(colorama.Fore.BLUE, "[{}]".format(" " * to_go), end="")
+    cprint(colorama.Fore.BLUE, "[", " " * (100 - 2), "]", end="")
     try:
         for (num, exception) in p.imap(save_comic, comic_numbers):
-            put_cursor_at((end_num + 1 - start_num) - to_go + 1,
-                          2 + line_offset)
-            if exception is None:
-                cprint(colorama.Fore.GREEN, "#", end="")
-                successful += 1
-            else:
-                cprint(colorama.Fore.RED, "#", end="")
-                failed += 1
+            downloaded = total_comics - to_go + 1
+
+            put_cursor_at(0, 2 + line_offset)
+            cprint(colorama.Fore.BLUE, "[", end="")
+            cprint(colorama.Fore.GREEN,
+                   "%" * int(100 / total_comics * downloaded), end="")
+            print_(" " * (100 - int(100 / total_comics * downloaded)), end="")
+            cprint(colorama.Fore.BLUE, "]")
             to_go -= 1
     except KeyboardInterrupt:
         # We specifically catch KeyboardInterrupt because the user may want to
