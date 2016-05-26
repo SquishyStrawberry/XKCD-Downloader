@@ -13,7 +13,7 @@ import requests
 
 BASE_URL = "https://xkcd.com/{}/"
 FILENAME_TEMPLATE = "comics/{:04} - XKCD - {}.png"
-PROGESS_BAR_WIDTH = 100
+PROGESS_BAR_WIDTH = max(os.environ.get("COLUMNS", 0) - 2, 100)
 
 # This value limits the pool of coroutines to 255, since that's the maximum
 # amount of files you can have open at the same time and thus write to.
